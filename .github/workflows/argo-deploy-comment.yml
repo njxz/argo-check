@@ -1,0 +1,124 @@
+name: argo-deploy-comment
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  argo-deploy:
+    name: Run Argo pipeline from PR comment
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, 'argo deploy ')
+    runs-on: ${{ vars.ARGO_RUNNER || 'self-hosted' }}
+    env:
+      ARGO_NAMESPACE: argo
+    steps:
+      - name: Parse command
+        id: command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            const match = body.match(/^argo\s+deploy\s+([A-Za-z0-9_.-]+)\s*$/);
+            if (!match) {
+              core.setFailed("Usage: argo deploy <pipeline-name>");
+              return;
+            }
+
+            const name = match[1].endsWith(".yaml") ? match[1].slice(0, -5) : match[1];
+            const file = `argo/${name}.yaml`;
+
+            core.setOutput("name", name);
+            core.setOutput("file", file);
+
+      - name: Load pull request
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            core.setOutput("head_sha", pr.head.sha);
+            core.setOutput("head_repo", pr.head.repo.clone_url);
+            core.setOutput("head_repo_full_name", pr.head.repo.full_name);
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr.outputs.head_repo_full_name }}
+          ref: ${{ steps.pr.outputs.head_sha }}
+
+      - name: Validate pipeline file exists
+        run: |
+          test -f "${{ steps.command.outputs.file }}"
+
+      - name: Install Argo CLI
+        run: |
+          if command -v argo >/dev/null 2>&1; then
+            argo version --short
+            exit 0
+          fi
+
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) arch="amd64" ;;
+            arm64|aarch64) arch="arm64" ;;
+            *) echo "Unsupported architecture: $arch"; exit 1 ;;
+          esac
+
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSL -o argo.gz "https://github.com/argoproj/argo-workflows/releases/latest/download/argo-${os}-${arch}.gz"
+          gunzip argo.gz
+          chmod +x argo
+          mv argo "$RUNNER_TEMP/bin/argo"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          argo version --short
+
+      - name: Configure kubeconfig
+        if: env.KUBECONFIG_B64 != ''
+        env:
+          KUBECONFIG_B64: ${{ secrets.ARGO_KUBECONFIG_B64 }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Submit Argo workflow
+        id: submit
+        run: |
+          argo submit "${{ steps.command.outputs.file }}" \
+            -n "$ARGO_NAMESPACE" \
+            --parameter repo="${{ steps.pr.outputs.head_repo }}" \
+            --parameter revision="${{ steps.pr.outputs.head_sha }}" \
+            --watch
+
+      - name: Comment success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.payload.issue.number,
+              body: "Argo deploy `${{ steps.command.outputs.name }}` succeeded for `${{ steps.pr.outputs.head_sha }}`."
+            });
+
+      - name: Comment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.payload.issue.number,
+              body: "Argo deploy `${{ steps.command.outputs.name || 'unknown' }}` failed. Check the GitHub Actions logs."
+            });
