@@ -38,6 +38,7 @@ fi
 kubectl config use-context "k3d-$CLUSTER_NAME"
 kubectl create namespace "$ARGO_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply --server-side -n "$ARGO_NAMESPACE" -f https://github.com/argoproj/argo-workflows/releases/latest/download/install.yaml
+kubectl apply -f argo/workflow-rbac.yaml
 kubectl wait --for=condition=available deployment --all -n "$ARGO_NAMESPACE" --timeout=180s
 
 argo submit "$WORKFLOW_FILE" -n "$ARGO_NAMESPACE" --watch
