@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           if command -v argo >/dev/null 2>&1; then
-            argo version --client
+            argo version --short
             exit 0
           fi
 
@@ -126,7 +126,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/argo"
           mv "$RUNNER_TEMP/argo" "$RUNNER_TEMP/bin/argo"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/bin/argo" version --client
+          "$RUNNER_TEMP/bin/argo" version --short
 
       - name: Submit workflow
         id: submit
@@ -146,6 +146,7 @@ jobs:
 
       - name: Comment result on PR
         if: ${{ github.event_name == 'issue_comment' && always() }}
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
