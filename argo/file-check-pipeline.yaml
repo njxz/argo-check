@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: file-check-
+  namespace: argo
+spec:
+  entrypoint: file-check
+  serviceAccountName: argo
+  arguments:
+    parameters:
+      - name: repo
+        value: https://github.com/njxz/argo-check.git
+      - name: revision
+        value: main
+  templates:
+    - name: file-check
+      steps:
+        - - name: checkout-and-list
+            template: checkout-and-list
+        - - name: terraform-check
+            template: terraform-check
+
+    - name: checkout-and-list
+      container:
+        image: alpine/git:2.45.2
+        command:
+          - sh
+          - -c
+        args:
+          - |
+            set -eux
+            git clone --depth 1 --branch "{{workflow.parameters.revision}}" "{{workflow.parameters.repo}}" repo
+            cd repo
+            find . -maxdepth 3 -type f | sort
+            test -d .github/workflows
+            test -d infra/terraform
+            test -d k8s
+
+    - name: terraform-check
+      container:
+        image: hashicorp/terraform:1.15.6
+        command:
+          - sh
+          - -c
+        args:
+          - |
+            set -eux
+            apk add --no-cache git
+            git clone --depth 1 --branch "{{workflow.parameters.revision}}" "{{workflow.parameters.repo}}" repo
+            cd repo
+            terraform fmt -check -recursive infra/terraform
+            for dir in infra/terraform/envs/*; do
+              [ -d "$dir" ] || continue
+              terraform -chdir="$dir" init -backend=false
+              terraform -chdir="$dir" validate
+            done

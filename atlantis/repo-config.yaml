@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: atlantis-repo-config
+data:
+  repos.yaml: |
+    repos:
+      - id: github.com/njxz/argo-check
+        apply_requirements:
+          - approved
+          - mergeable
+        allowed_overrides:
+          - workflow
+          - apply_requirements
+        allow_custom_workflows: true
+        workflow: default
+    workflows:
+      default:
+        plan:
+          steps:
+            - init
+            - plan
+        apply:
+          steps:
+            - apply

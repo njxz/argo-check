@@ -1,0 +1,22 @@
+name: terraform-plan
+
+on:
+  pull_request:
+    paths:
+      - infra/terraform/**
+      - atlantis.yaml
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan-note:
+    name: Atlantis ownership notice
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain Terraform PR flow
+        run: |
+          echo "Terraform plans are executed by Atlantis."
+          echo "Comment 'atlantis plan' or rely on autoplan for changed Terraform projects."
+

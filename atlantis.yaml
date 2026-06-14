@@ -1,0 +1,19 @@
+version: 3
+automerge: false
+delete_source_branch_on_merge: false
+parallel_plan: true
+parallel_apply: false
+projects:
+  - name: dev
+    dir: infra/terraform/envs/dev
+    workspace: dev
+    terraform_version: v1.15.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "*.tfvars"
+        - "../../modules/**/*.tf"
+    apply_requirements:
+      - approved
+      - mergeable
